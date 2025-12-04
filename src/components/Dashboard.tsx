@@ -4,12 +4,24 @@ import { Button } from '@/components/ui/button';
 import { StatsCard } from '@/components/StatsCard';
 import { ProfitChart } from '@/components/ProfitChart';
 import { SnipedItemsTable } from '@/components/SnipedItemsTable';
+import { AddItemModal } from '@/components/AddItemModal';
+import { useRobloxData } from '@/hooks/useRobloxData';
 import { cn } from '@/lib/utils';
 
 type Tab = 'dashboard' | 'watchlist' | 'settings';
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  const { items, stats, addItem, removeItem, refreshItems } = useRobloxData();
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await refreshItems();
+    setIsRefreshing(false);
+  };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
@@ -25,25 +37,25 @@ export function Dashboard() {
           <StatsCard
             icon={<Target className="h-4 w-4" />}
             label="Total Snipes"
-            value="3"
+            value={stats.totalSnipes.toString()}
           />
           <StatsCard
             icon={<DollarSign className="h-4 w-4" />}
             label="Total Invested"
-            value="R$ 133,518"
+            value={`R$ ${stats.totalInvested.toLocaleString()}`}
             variant="default"
           />
           <StatsCard
             icon={<Wallet className="h-4 w-4" />}
             label="Portfolio Value"
-            value="R$ 197,000"
+            value={`R$ ${stats.portfolioValue.toLocaleString()}`}
           />
           <StatsCard
             icon={<TrendingUp className="h-4 w-4" />}
             label="All-Time Profit"
-            value="+R$ 63,482"
-            subValue="+47.5%"
-            variant="success"
+            value={`${stats.allTimeProfit >= 0 ? '+' : ''}R$ ${stats.allTimeProfit.toLocaleString()}`}
+            subValue={`${stats.profitPercentage >= 0 ? '+' : ''}${stats.profitPercentage.toFixed(1)}%`}
+            variant={stats.allTimeProfit >= 0 ? "success" : "loss"}
           />
         </div>
 
@@ -68,8 +80,14 @@ export function Dashboard() {
         {/* Content */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            <ProfitChart />
-            <SnipedItemsTable />
+            <ProfitChart items={items} />
+            <SnipedItemsTable 
+              items={items} 
+              onRefresh={handleRefresh}
+              onAddClick={() => setIsAddModalOpen(true)}
+              onRemove={removeItem}
+              isRefreshing={isRefreshing}
+            />
           </div>
         )}
 
@@ -93,6 +111,12 @@ export function Dashboard() {
           </div>
         )}
       </div>
+
+      <AddItemModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onAdd={addItem}
+      />
     </main>
   );
 }

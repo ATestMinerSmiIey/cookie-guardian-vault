@@ -13,7 +13,7 @@ export function Header({ onLoginClick }: HeaderProps) {
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="container mx-auto flex h-16 items-center justify-between px-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary glow-red-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary shadow-[0_0_20px_hsl(var(--primary)/0.3)]">
             <Check className="h-6 w-6 text-primary-foreground" />
           </div>
           <div>
@@ -38,7 +38,10 @@ export function Header({ onLoginClick }: HeaderProps) {
             </Button>
           </div>
         ) : (
-          <Button variant="hero" onClick={onLoginClick}>
+          <Button 
+            onClick={onLoginClick}
+            className="bg-primary text-primary-foreground shadow-[0_0_20px_hsl(var(--primary)/0.3)] hover:shadow-[0_0_30px_hsl(var(--primary)/0.4)] font-semibold"
+          >
             <Check className="h-4 w-4" />
             Login with Cookie
           </Button>
