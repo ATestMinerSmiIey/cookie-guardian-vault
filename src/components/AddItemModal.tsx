@@ -1,49 +1,63 @@
 import { useState } from 'react';
-import { X, AlertTriangle, Lock } from 'lucide-react';
+import { X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { useAuth } from '@/contexts/AuthContext';
+import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
-interface LoginModalProps {
+interface AddItemModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onAdd: (assetId: number, boughtFor: number) => Promise<{ success: boolean; error?: string }>;
 }
 
-export function LoginModal({ isOpen, onClose }: LoginModalProps) {
-  const [cookie, setCookie] = useState('');
+export function AddItemModal({ isOpen, onClose, onAdd }: AddItemModalProps) {
+  const [assetId, setAssetId] = useState('');
+  const [boughtFor, setBoughtFor] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
   const { toast } = useToast();
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cookie.trim()) {
+    
+    const assetIdNum = parseInt(assetId);
+    const boughtForNum = parseInt(boughtFor);
+    
+    if (isNaN(assetIdNum) || assetIdNum <= 0) {
       toast({
         title: "Error",
-        description: "Please enter your .ROBLOSECURITY cookie",
+        description: "Please enter a valid Asset ID",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isNaN(boughtForNum) || boughtForNum < 0) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid purchase price",
         variant: "destructive",
       });
       return;
     }
 
     setIsLoading(true);
-    const result = await login(cookie.trim());
+    const result = await onAdd(assetIdNum, boughtForNum);
     setIsLoading(false);
 
     if (result.success) {
       toast({
         title: "Success",
-        description: "Successfully connected your Roblox account!",
+        description: "Item added to your snipes!",
       });
+      setAssetId('');
+      setBoughtFor('');
       onClose();
-      setCookie('');
     } else {
       toast({
-        title: "Authentication Failed",
-        description: result.error || "Invalid cookie. Please try again.",
+        title: "Error",
+        description: result.error || "Failed to add item",
         variant: "destructive",
       });
     }
@@ -61,29 +75,39 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         </button>
 
         <div className="mb-6">
-          <h2 className="text-xl font-bold text-foreground">Connect Your Account</h2>
+          <h2 className="text-xl font-bold text-foreground">Add Sniped Item</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Enter your .ROBLOSECURITY cookie to authenticate
-          </p>
-        </div>
-
-        <div className="mb-4 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/10 p-3">
-          <AlertTriangle className="h-5 w-5 shrink-0 text-primary" />
-          <p className="text-xs text-foreground/80">
-            Your cookie is stored locally and encrypted. Never share your cookie with anyone else.
+            Track a new item you've sniped
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="mb-2 block text-sm font-medium text-foreground">
-              .ROBLOSECURITY Cookie
+              Asset ID
             </label>
-            <Textarea
-              value={cookie}
-              onChange={(e) => setCookie(e.target.value)}
-              placeholder="_|WARNING:-DO-NOT-SHARE-THIS..."
-              className="h-32 resize-none font-mono text-xs"
+            <Input
+              type="number"
+              value={assetId}
+              onChange={(e) => setAssetId(e.target.value)}
+              placeholder="e.g., 48545806"
+              className="font-mono"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Find this in the item's URL on Roblox
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-foreground">
+              Purchase Price (R$)
+            </label>
+            <Input
+              type="number"
+              value={boughtFor}
+              onChange={(e) => setBoughtFor(e.target.value)}
+              placeholder="e.g., 8500"
+              className="font-mono"
             />
           </div>
 
@@ -95,23 +119,16 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             {isLoading ? (
               <>
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                Validating...
+                Adding...
               </>
             ) : (
               <>
-                <Lock className="h-4 w-4" />
-                Connect Account
+                <Plus className="h-4 w-4" />
+                Add Item
               </>
             )}
           </Button>
         </form>
-
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          Need help finding your cookie?{' '}
-          <a href="#" className="text-primary hover:underline">
-            View tutorial
-          </a>
-        </p>
       </div>
     </div>
   );

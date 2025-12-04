@@ -10,11 +10,11 @@ export function LandingHero({ onLoginClick }: LandingHeroProps) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-6 pt-24 pb-12">
       <div className="flex flex-col items-center text-center">
-        <div className="mb-8 flex h-24 w-24 animate-float items-center justify-center rounded-2xl bg-primary glow-red">
+        <div className="mb-8 flex h-24 w-24 animate-float items-center justify-center rounded-2xl bg-primary shadow-[0_0_40px_hsl(var(--primary)/0.4),0_0_80px_hsl(var(--primary)/0.2)]">
           <Check className="h-14 w-14 text-primary-foreground" />
         </div>
 
-        <h1 className="mb-4 text-5xl font-extrabold italic tracking-tight text-gradient sm:text-6xl md:text-7xl">
+        <h1 className="mb-4 text-5xl font-extrabold italic tracking-tight bg-gradient-to-b from-primary to-primary/70 bg-clip-text text-transparent sm:text-6xl md:text-7xl">
           VERIZON
         </h1>
 
@@ -26,7 +26,11 @@ export function LandingHero({ onLoginClick }: LandingHeroProps) {
           Track your snipes, analyze profits, and dominate the limited market with precision analytics
         </p>
 
-        <Button variant="hero" size="xl" onClick={onLoginClick}>
+        <Button 
+          size="lg" 
+          onClick={onLoginClick}
+          className="h-14 px-10 text-base bg-primary text-primary-foreground shadow-[0_0_20px_hsl(var(--primary)/0.3),0_0_40px_hsl(var(--primary)/0.15)] hover:shadow-[0_0_40px_hsl(var(--primary)/0.4),0_0_80px_hsl(var(--primary)/0.2)] font-semibold transition-all duration-300"
+        >
           <Check className="h-5 w-5" />
           Connect Your Account
         </Button>

@@ -1,1 +1,4 @@
 project_id = "lyihtixtxsxrcxxsluel"
+
+[functions.validate-roblox-cookie]
+verify_jwt = false
