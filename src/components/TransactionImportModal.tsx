@@ -115,10 +115,17 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
   };
 
   const filteredTransactions = showLimitedsOnly 
-    ? transactions.filter(tx => tx.isLimited)
+    ? transactions.filter(tx => tx.isLimited === true)
     : transactions;
 
-  const limitedCount = transactions.filter(t => t.isLimited).length;
+  const limitedCount = transactions.filter(t => t.isLimited === true).length;
+  
+  // Debug logging
+  console.log('Total transactions:', transactions.length);
+  console.log('Limited count:', limitedCount);
+  console.log('Show limiteds only:', showLimitedsOnly);
+  console.log('Filtered count:', filteredTransactions.length);
+  console.log('Sample tx isLimited values:', transactions.slice(0, 5).map(t => ({ name: t.assetName, isLimited: t.isLimited, type: typeof t.isLimited })));
   const importableCount = filteredTransactions.filter(
     tx => !existingAssetIds.includes(tx.assetId) && !importedIds.has(tx.assetId)
   ).length;
