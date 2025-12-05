@@ -2,3 +2,9 @@ project_id = "lyihtixtxsxrcxxsluel"
 
 [functions.validate-roblox-cookie]
 verify_jwt = false
+
+[functions.fetch-roblox-item]
+verify_jwt = false
+
+[functions.validate-roblox-cookie]
+verify_jwt = false

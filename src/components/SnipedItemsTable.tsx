@@ -1,4 +1,4 @@
-import { ExternalLink, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { ExternalLink, RefreshCw, Plus, Trash2, FileJson } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { RobloxItem } from '@/hooks/useRobloxData';
@@ -7,11 +7,12 @@ interface SnipedItemsTableProps {
   items: RobloxItem[];
   onRefresh: () => void;
   onAddClick: () => void;
+  onBulkImportClick: () => void;
   onRemove: (itemId: string) => void;
   isRefreshing?: boolean;
 }
 
-export function SnipedItemsTable({ items, onRefresh, onAddClick, onRemove, isRefreshing }: SnipedItemsTableProps) {
+export function SnipedItemsTable({ items, onRefresh, onAddClick, onBulkImportClick, onRemove, isRefreshing }: SnipedItemsTableProps) {
   const calculateProfit = (boughtFor: number, currentRap: number | null) => {
     if (currentRap === null) return { amount: -boughtFor, percentage: -100 };
     const profit = currentRap - boughtFor;
@@ -27,6 +28,10 @@ export function SnipedItemsTable({ items, onRefresh, onAddClick, onRemove, isRef
           <p className="text-xs text-muted-foreground">Your trading history</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={onBulkImportClick}>
+            <FileJson className="mr-2 h-4 w-4" />
+            Import JSON
+          </Button>
           <Button variant="outline" size="sm" onClick={onAddClick}>
             <Plus className="mr-2 h-4 w-4" />
             Add Item

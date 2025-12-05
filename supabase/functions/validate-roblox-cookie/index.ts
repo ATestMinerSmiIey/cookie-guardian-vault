@@ -6,7 +6,6 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -21,9 +20,7 @@ serve(async (req) => {
       );
     }
 
-    // Clean the cookie - remove any whitespace and ensure proper format
     const cleanCookie = cookie.trim();
-
     console.log('Attempting to validate Roblox cookie...');
 
     // Validate the cookie by making a request to Roblox's authenticated endpoint
@@ -52,6 +49,43 @@ serve(async (req) => {
     const userData = await response.json();
     console.log('Successfully authenticated user:', userData.name);
 
+    // Fetch user's avatar headshot
+    let avatarUrl = '';
+    try {
+      const avatarResponse = await fetch(
+        `https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userData.id}&size=150x150&format=Png&isCircular=false`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (avatarResponse.ok) {
+        const avatarData = await avatarResponse.json();
+        avatarUrl = avatarData.data?.[0]?.imageUrl || '';
+        console.log('Avatar URL:', avatarUrl);
+      }
+    } catch (avatarError) {
+      console.error('Error fetching avatar:', avatarError);
+    }
+
+    // Fetch user's Robux balance
+    let robuxBalance = 0;
+    try {
+      const currencyResponse = await fetch(
+        `https://economy.roblox.com/v1/users/${userData.id}/currency`,
+        {
+          headers: {
+            'Cookie': `.ROBLOSECURITY=${cleanCookie}`,
+            'Accept': 'application/json',
+          },
+        }
+      );
+      if (currencyResponse.ok) {
+        const currencyData = await currencyResponse.json();
+        robuxBalance = currencyData.robux || 0;
+        console.log('Robux balance:', robuxBalance);
+      }
+    } catch (currencyError) {
+      console.error('Error fetching robux:', currencyError);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -60,6 +94,8 @@ serve(async (req) => {
           name: userData.name,
           displayName: userData.displayName,
           hasVerifiedBadge: userData.hasVerifiedBadge || false,
+          avatarUrl,
+          robuxBalance,
         }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
