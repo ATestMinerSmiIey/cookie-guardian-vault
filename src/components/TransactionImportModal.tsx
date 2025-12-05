@@ -47,11 +47,11 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
     let allTransactions: Transaction[] = nextCursor ? [...transactions] : [];
     let currentCursor = nextCursor;
     let pagesScanned = 0;
-    const maxPages = 10; // Scan up to 10 pages to find limiteds
+    const maxPages = 15; // Scan up to 15 pages to find all limiteds
 
     try {
       do {
-        setScanProgress(`Scanning page ${pagesScanned + 1}...`);
+        setScanProgress(`Scanning page ${pagesScanned + 1} of ${maxPages}...`);
         
         const { data, error } = await supabase.functions.invoke('fetch-transactions', {
           body: { 
@@ -70,10 +70,8 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
         currentCursor = data.nextCursor;
         pagesScanned++;
 
-        const limitedCount = allTransactions.filter(t => t.isLimited).length;
-        
-        // If we found limiteds or reached max pages or no more data, stop
-        if (limitedCount > 0 || pagesScanned >= maxPages || !data.hasMore) {
+        // Continue scanning until max pages or no more data
+        if (pagesScanned >= maxPages || !data.hasMore) {
           setCursor(data.nextCursor);
           setHasMore(data.hasMore);
           break;
@@ -110,19 +108,33 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
   const handleImportAll = async () => {
     setIsLoading(true);
     let imported = 0;
+    const newImportedIds: number[] = [];
     
-    const toImport = filteredTransactions.filter(
+    // Get items to import based on current filter state
+    const toImport = (showLimitedsOnly 
+      ? transactions.filter(tx => tx.isLimited === true)
+      : transactions
+    ).filter(
       tx => !existingAssetIds.includes(tx.assetId) && !importedIds.has(tx.assetId)
     );
     
+    console.log('Items to import:', toImport.length, toImport.map(t => t.assetName));
+    
+    // Import all items sequentially without updating state in between
     for (const tx of toImport) {
-      const result = await onImport(tx);
-      if (result.success) {
-        setImportedIds(prev => new Set([...prev, tx.assetId]));
-        imported++;
+      try {
+        const result = await onImport(tx);
+        if (result.success) {
+          newImportedIds.push(tx.assetId);
+          imported++;
+        }
+      } catch (err) {
+        console.error('Failed to import:', tx.assetName, err);
       }
     }
     
+    // Update state once at the end
+    setImportedIds(prev => new Set([...prev, ...newImportedIds]));
     setIsLoading(false);
     toast.success(`Imported ${imported} items`);
   };
