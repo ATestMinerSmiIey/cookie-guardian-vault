@@ -7,6 +7,7 @@ const corsHeaders = {
 
 interface Transaction {
   id: number;
+  idHash: string;
   assetId: number;
   assetName: string;
   assetType: string;
@@ -127,16 +128,12 @@ serve(async (req) => {
     const transactionsData = await response.json();
     console.log('Found transactions:', transactionsData.data?.length || 0);
 
-    // Log first few transactions for debugging
-    const sampleTx = transactionsData.data?.slice(0, 3);
-    console.log('Sample transactions:', JSON.stringify(sampleTx));
-
-    // Collect ALL asset purchases - let user decide which to import
+    // Collect ALL asset purchases
     const transactions: Transaction[] = [];
     const assetIds: number[] = [];
     
     for (const tx of transactionsData.data || []) {
-      // Check if it's an asset purchase
+      // Check if it's an asset purchase (not game pass, developer product, etc.)
       if (tx.details?.type === 'Asset' && tx.details?.id) {
         const assetId = tx.details.id;
         const assetIdStr = String(assetId);
@@ -146,6 +143,7 @@ serve(async (req) => {
         
         transactions.push({
           id: tx.id,
+          idHash: tx.idHash || `${assetId}-${tx.created}`,
           assetId: assetId,
           assetName: rolimonsItem?.name || tx.details.name || 'Unknown',
           assetType: tx.details.type,
