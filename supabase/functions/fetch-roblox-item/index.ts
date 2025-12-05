@@ -5,6 +5,69 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+interface RolimonsItem {
+  name: string;
+  rap: number;
+  value: number;
+}
+
+// Rolimons data cache
+let rolimonsCache: { data: Record<string, RolimonsItem> | null; timestamp: number } = {
+  data: null,
+  timestamp: 0
+};
+
+async function fetchRolimonsData(): Promise<Record<string, RolimonsItem>> {
+  const now = Date.now();
+  // Cache for 5 minutes
+  if (rolimonsCache.data && (now - rolimonsCache.timestamp) < 300000) {
+    console.log('Using cached Rolimons data');
+    return rolimonsCache.data;
+  }
+
+  console.log('Fetching fresh Rolimons data...');
+  try {
+    const response = await fetch('https://www.rolimons.com/itemapi/itemdetails', {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+
+    if (!response.ok) {
+      console.error('Rolimons API error:', response.status);
+      return rolimonsCache.data || {};
+    }
+
+    const data = await response.json();
+    
+    if (!data.success || !data.items) {
+      console.error('Invalid Rolimons response');
+      return rolimonsCache.data || {};
+    }
+
+    // Parse Rolimons data format: [Name, Acronym, Rap, Value, ...]
+    const items: Record<string, RolimonsItem> = {};
+    for (const [assetId, itemData] of Object.entries(data.items)) {
+      if (Array.isArray(itemData) && itemData.length >= 4) {
+        items[assetId] = {
+          name: itemData[0] as string,
+          rap: itemData[2] as number,
+          value: itemData[3] as number
+        };
+      }
+    }
+
+    console.log(`Parsed ${Object.keys(items).length} limited items from Rolimons`);
+    
+    rolimonsCache = { data: items, timestamp: now };
+    return items;
+  } catch (error) {
+    console.error('Failed to fetch Rolimons data:', error);
+    return rolimonsCache.data || {};
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -22,88 +85,19 @@ serve(async (req) => {
 
     console.log('Fetching item data for asset:', assetId);
 
-    // Fetch resale data for RAP (this only works for limiteds)
-    let rap = 0;
-    let isLimited = false;
-    
-    try {
-      const resaleResponse = await fetch(
-        `https://economy.roblox.com/v1/assets/${assetId}/resale-data`,
-        { headers: { 'Accept': 'application/json' } }
-      );
-      
-      if (resaleResponse.ok) {
-        const resaleData = await resaleResponse.json();
-        rap = resaleData.recentAveragePrice || 0;
-        isLimited = true; // If resale-data endpoint works, it's a limited
-        console.log('Resale data - RAP:', rap);
-      }
-    } catch (e) {
-      console.log('No resale data (not a limited):', e);
-    }
+    // Fetch Rolimons data for RAP and limited status
+    const rolimonsItems = await fetchRolimonsData();
+    const rolimonsItem = rolimonsItems[String(assetId)];
 
-    // Fetch item details from Roblox API
-    const detailsResponse = await fetch(
-      `https://economy.roblox.com/v2/assets/${assetId}/details`,
-      { headers: { 'Accept': 'application/json' } }
-    );
-
-    let itemData: any = null;
-    let thumbnailUrl = '';
-
-    if (detailsResponse.ok) {
-      itemData = await detailsResponse.json();
-      console.log('Item data:', itemData.Name);
-      
-      // Fallback to Roblox's limited status if resale-data didn't confirm
-      if (!isLimited) {
-        isLimited = itemData.IsLimited || itemData.IsLimitedUnique || false;
-        rap = itemData.RecentAveragePrice || 0;
-      }
-    } else {
-      // Try alternative endpoint
-      const catalogResponse = await fetch(
-        `https://catalog.roblox.com/v1/catalog/items/details`,
-        {
-          method: 'POST',
-          headers: { 
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            items: [{ itemType: 'Asset', id: assetId }]
-          })
-        }
-      );
-
-      if (catalogResponse.ok) {
-        const catalogData = await catalogResponse.json();
-        const item = catalogData.data?.[0];
-
-        if (item) {
-          itemData = {
-            AssetId: item.id,
-            Name: item.name,
-            Description: item.description,
-            PriceInRobux: item.price,
-            Creator: { Name: item.creatorName },
-          };
-
-          if (!isLimited) {
-            isLimited = item.itemRestrictions?.includes('Limited') || item.itemRestrictions?.includes('LimitedUnique') || false;
-          }
-        }
-      }
-    }
-
-    if (!itemData) {
+    if (!rolimonsItem) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Item not found' }),
+        JSON.stringify({ success: false, error: 'Item is not a limited or not found' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
       );
     }
 
     // Fetch thumbnail
+    let thumbnailUrl = '';
     try {
       const thumbResponse = await fetch(
         `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=420x420&format=Png&isCircular=false`,
@@ -120,13 +114,12 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        assetId: itemData.AssetId,
-        name: itemData.Name,
-        rap,
-        price: itemData.PriceInRobux || 0,
-        isLimited,
-        description: itemData.Description,
-        creator: itemData.Creator?.Name,
+        assetId: Number(assetId),
+        name: rolimonsItem.name,
+        rap: rolimonsItem.rap,
+        value: rolimonsItem.value,
+        price: 0,
+        isLimited: true,
         thumbnailUrl,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
