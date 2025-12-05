@@ -15,6 +15,34 @@ interface Transaction {
   isLimited: boolean;
   thumbnailUrl?: string;
   currentRap?: number;
+  value?: number;
+}
+
+// Cache Rolimons data for 5 minutes
+let rolimonsCache: { data: any; timestamp: number } | null = null;
+const CACHE_DURATION = 5 * 60 * 1000;
+
+async function getRolimonsData() {
+  if (rolimonsCache && Date.now() - rolimonsCache.timestamp < CACHE_DURATION) {
+    return rolimonsCache.data;
+  }
+
+  try {
+    console.log('Fetching Rolimons data...');
+    const response = await fetch('https://www.rolimons.com/api/items', {
+      headers: { 'Accept': 'application/json' }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      rolimonsCache = { data, timestamp: Date.now() };
+      console.log('Rolimons data cached, total items:', Object.keys(data.items || {}).length);
+      return data;
+    }
+  } catch (e) {
+    console.error('Failed to fetch Rolimons data:', e);
+  }
+  return null;
 }
 
 serve(async (req) => {
@@ -35,8 +63,12 @@ serve(async (req) => {
     const cleanCookie = cookie.trim();
     console.log('Fetching transactions for user:', userId);
 
+    // First fetch Rolimons data for accurate limited detection
+    const rolimonsData = await getRolimonsData();
+    const limitedIds = rolimonsData?.items ? new Set(Object.keys(rolimonsData.items).map(Number)) : new Set();
+    console.log('Known limited items from Rolimons:', limitedIds.size);
+
     // Fetch transactions from Roblox API
-    // Using the economy transactions API
     let url = `https://economy.roblox.com/v2/users/${userId}/transactions?transactionType=Purchase&limit=100`;
     if (cursor) {
       url += `&cursor=${cursor}`;
@@ -50,9 +82,10 @@ serve(async (req) => {
     });
 
     if (!response.ok) {
-      console.error('Transactions API error:', response.status);
+      const errorText = await response.text();
+      console.error('Transactions API error:', response.status, errorText);
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to fetch transactions' }),
+        JSON.stringify({ success: false, error: `Failed to fetch transactions: ${response.status}` }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: response.status }
       );
     }
@@ -61,95 +94,68 @@ serve(async (req) => {
     console.log('Found transactions:', transactionsData.data?.length || 0);
 
     const transactions: Transaction[] = [];
-    const assetIds: number[] = [];
 
     // Process each transaction
     for (const tx of transactionsData.data || []) {
       // Only process asset purchases (not game passes, etc)
       if (tx.details?.type === 'Asset' && tx.details?.id) {
-        assetIds.push(tx.details.id);
-        transactions.push({
-          id: tx.id,
-          assetId: tx.details.id,
-          assetName: tx.details.name || 'Unknown',
-          assetType: tx.details.type,
-          robuxSpent: Math.abs(tx.currency?.amount || 0),
-          created: tx.created,
-          isLimited: false, // Will be updated below
-        });
-      }
-    }
+        const assetId = tx.details.id;
+        
+        // Check if this is a limited using Rolimons data
+        const isLimited = limitedIds.has(assetId);
+        
+        if (isLimited) {
+          const rolimonsItem = rolimonsData?.items?.[assetId];
+          // Rolimons item format: [name, acronym, rap, value, demand, trend, projected, hyped, rare]
+          const rap = rolimonsItem?.[2] || 0;
+          const value = rolimonsItem?.[3] || rap;
+          const name = rolimonsItem?.[0] || tx.details.name || 'Unknown';
 
-    // Check which assets are limiteds and get their RAP
-    if (assetIds.length > 0) {
-      // Fetch item details in batches
-      const limitedChecks = await Promise.all(
-        transactions.map(async (tx) => {
-          try {
-            const detailsResponse = await fetch(
-              `https://economy.roblox.com/v2/assets/${tx.assetId}/details`,
-              { headers: { 'Accept': 'application/json' } }
-            );
-            
-            if (detailsResponse.ok) {
-              const details = await detailsResponse.json();
-              return {
-                assetId: tx.assetId,
-                isLimited: details.IsLimited || details.IsLimitedUnique,
-                rap: details.RecentAveragePrice || 0,
-              };
-            }
-            return { assetId: tx.assetId, isLimited: false, rap: 0 };
-          } catch {
-            return { assetId: tx.assetId, isLimited: false, rap: 0 };
-          }
-        })
-      );
-
-      // Update transactions with limited status
-      for (const check of limitedChecks) {
-        const tx = transactions.find(t => t.assetId === check.assetId);
-        if (tx) {
-          tx.isLimited = check.isLimited;
-          tx.currentRap = check.rap;
-        }
-      }
-
-      // Get thumbnails for limited items
-      const limitedAssetIds = transactions
-        .filter(tx => tx.isLimited)
-        .map(tx => tx.assetId);
-
-      if (limitedAssetIds.length > 0) {
-        try {
-          const thumbnailResponse = await fetch(
-            `https://thumbnails.roblox.com/v1/assets?assetIds=${limitedAssetIds.join(',')}&size=420x420&format=Png&isCircular=false`,
-            { headers: { 'Accept': 'application/json' } }
-          );
-          
-          if (thumbnailResponse.ok) {
-            const thumbnailData = await thumbnailResponse.json();
-            for (const thumb of thumbnailData.data || []) {
-              const tx = transactions.find(t => t.assetId === thumb.targetId);
-              if (tx) {
-                tx.thumbnailUrl = thumb.imageUrl;
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Failed to fetch thumbnails:', e);
+          transactions.push({
+            id: tx.id,
+            assetId,
+            assetName: name,
+            assetType: tx.details.type,
+            robuxSpent: Math.abs(tx.currency?.amount || 0),
+            created: tx.created,
+            isLimited: true,
+            currentRap: rap,
+            value,
+          });
         }
       }
     }
 
-    // Filter to only return limiteds
-    const limitedTransactions = transactions.filter(tx => tx.isLimited);
-    console.log('Limited transactions found:', limitedTransactions.length);
+    console.log('Limited transactions found:', transactions.length);
+
+    // Get thumbnails for limited items
+    if (transactions.length > 0) {
+      const assetIds = transactions.map(tx => tx.assetId);
+      
+      try {
+        const thumbnailResponse = await fetch(
+          `https://thumbnails.roblox.com/v1/assets?assetIds=${assetIds.join(',')}&size=420x420&format=Png&isCircular=false`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        
+        if (thumbnailResponse.ok) {
+          const thumbnailData = await thumbnailResponse.json();
+          for (const thumb of thumbnailData.data || []) {
+            const tx = transactions.find(t => t.assetId === thumb.targetId);
+            if (tx) {
+              tx.thumbnailUrl = thumb.imageUrl;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch thumbnails:', e);
+      }
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
-        transactions: limitedTransactions,
+        transactions,
         nextCursor: transactionsData.nextPageCursor || null,
         hasMore: !!transactionsData.nextPageCursor,
       }),

@@ -5,6 +5,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Cache Rolimons data for 5 minutes
+let rolimonsCache: { data: any; timestamp: number } | null = null;
+const CACHE_DURATION = 5 * 60 * 1000;
+
+async function getRolimonsData() {
+  if (rolimonsCache && Date.now() - rolimonsCache.timestamp < CACHE_DURATION) {
+    return rolimonsCache.data;
+  }
+
+  try {
+    const response = await fetch('https://www.rolimons.com/api/items', {
+      headers: { 'Accept': 'application/json' }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      rolimonsCache = { data, timestamp: Date.now() };
+      return data;
+    }
+  } catch (e) {
+    console.error('Failed to fetch Rolimons data:', e);
+  }
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -22,12 +47,31 @@ serve(async (req) => {
 
     console.log('Fetching item data for asset:', assetId);
 
-    // Fetch item details from Roblox API
+    // First check Rolimons for accurate RAP and limited status
+    const rolimonsData = await getRolimonsData();
+    let rolimonsItem = null;
+    let isLimited = false;
+    let rap = 0;
+
+    if (rolimonsData?.items?.[assetId]) {
+      const item = rolimonsData.items[assetId];
+      isLimited = true;
+      // Rolimons item format: [name, acronym, rap, value, demand, trend, projected, hyped, rare]
+      rap = item[2] || 0;
+      rolimonsItem = {
+        name: item[0],
+        rap: item[2] || 0,
+        value: item[3] || 0,
+        demand: item[4],
+        trend: item[5],
+      };
+      console.log('Rolimons data found:', rolimonsItem.name, 'RAP:', rap);
+    }
+
+    // Fetch item details from Roblox API for additional info
     const detailsResponse = await fetch(
       `https://economy.roblox.com/v2/assets/${assetId}/details`,
-      {
-        headers: { 'Accept': 'application/json' }
-      }
+      { headers: { 'Accept': 'application/json' } }
     );
 
     let itemData: any = null;
@@ -36,6 +80,12 @@ serve(async (req) => {
     if (detailsResponse.ok) {
       itemData = await detailsResponse.json();
       console.log('Item data:', itemData.Name);
+      
+      // Use Roblox's limited status as fallback if not in Rolimons
+      if (!isLimited) {
+        isLimited = itemData.IsLimited || itemData.IsLimitedUnique || false;
+        rap = itemData.RecentAveragePrice || 0;
+      }
     } else {
       // Try alternative endpoint
       const catalogResponse = await fetch(
@@ -52,49 +102,30 @@ serve(async (req) => {
         }
       );
 
-      if (!catalogResponse.ok) {
-        console.error('Failed to fetch from both endpoints');
-        return new Response(
-          JSON.stringify({ success: false, error: 'Failed to fetch item details' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
-        );
-      }
+      if (catalogResponse.ok) {
+        const catalogData = await catalogResponse.json();
+        const item = catalogData.data?.[0];
 
-      const catalogData = await catalogResponse.json();
-      const item = catalogData.data?.[0];
+        if (item) {
+          itemData = {
+            AssetId: item.id,
+            Name: item.name,
+            Description: item.description,
+            PriceInRobux: item.price,
+            Creator: { Name: item.creatorName },
+          };
 
-      if (!item) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Item not found' }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
-        );
-      }
-
-      // Fetch thumbnail
-      try {
-        const thumbResponse = await fetch(
-          `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=420x420&format=Png&isCircular=false`,
-          { headers: { 'Accept': 'application/json' } }
-        );
-        if (thumbResponse.ok) {
-          const thumbData = await thumbResponse.json();
-          thumbnailUrl = thumbData.data?.[0]?.imageUrl || '';
+          if (!isLimited) {
+            isLimited = item.itemRestrictions?.includes('Limited') || item.itemRestrictions?.includes('LimitedUnique') || false;
+          }
         }
-      } catch (e) {
-        console.error('Failed to fetch thumbnail:', e);
       }
+    }
 
+    if (!itemData && !rolimonsItem) {
       return new Response(
-        JSON.stringify({
-          success: true,
-          assetId: item.id,
-          name: item.name,
-          rap: item.recentAveragePrice || 0,
-          price: item.price || 0,
-          isLimited: item.itemRestrictions?.includes('Limited') || item.itemRestrictions?.includes('LimitedUnique'),
-          thumbnailUrl,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, error: 'Item not found' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
       );
     }
 
@@ -112,17 +143,22 @@ serve(async (req) => {
       console.error('Failed to fetch thumbnail:', e);
     }
 
+    const name = rolimonsItem?.name || itemData?.Name || 'Unknown';
+
     return new Response(
       JSON.stringify({
         success: true,
-        assetId: itemData.AssetId,
-        name: itemData.Name,
-        rap: itemData.RecentAveragePrice || 0,
-        price: itemData.PriceInRobux || 0,
-        isLimited: itemData.IsLimited || itemData.IsLimitedUnique,
-        description: itemData.Description,
-        creator: itemData.Creator?.Name,
+        assetId: assetId,
+        name,
+        rap: rolimonsItem?.rap ?? rap,
+        value: rolimonsItem?.value || rap,
+        price: itemData?.PriceInRobux || 0,
+        isLimited,
+        description: itemData?.Description,
+        creator: itemData?.Creator?.Name,
         thumbnailUrl,
+        demand: rolimonsItem?.demand,
+        trend: rolimonsItem?.trend,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
