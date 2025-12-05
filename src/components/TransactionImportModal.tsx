@@ -33,7 +33,7 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [importedIds, setImportedIds] = useState<Set<number>>(new Set());
-  const [showLimitedsOnly, setShowLimitedsOnly] = useState(false);
+  const [showLimitedsOnly, setShowLimitedsOnly] = useState(true);
 
   const fetchTransactions = async (nextCursor?: string) => {
     if (!cookie || !user) {
