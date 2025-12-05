@@ -9,6 +9,7 @@ import { robuxToGBP, formatGBP } from '@/lib/currency';
 
 interface Transaction {
   id: number;
+  idHash: string;
   assetId: number;
   assetName: string;
   robuxSpent: number;
@@ -34,43 +35,62 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
   const [hasMore, setHasMore] = useState(false);
   const [importedIds, setImportedIds] = useState<Set<number>>(new Set());
   const [showLimitedsOnly, setShowLimitedsOnly] = useState(true);
+  const [scanProgress, setScanProgress] = useState('');
 
-  const fetchTransactions = async (nextCursor?: string) => {
+  const fetchTransactions = async (nextCursor?: string, autoScan = false) => {
     if (!cookie || !user) {
       toast.error('Please login first');
       return;
     }
 
     setIsFetching(true);
+    let allTransactions: Transaction[] = nextCursor ? [...transactions] : [];
+    let currentCursor = nextCursor;
+    let pagesScanned = 0;
+    const maxPages = 10; // Scan up to 10 pages to find limiteds
+
     try {
-      const { data, error } = await supabase.functions.invoke('fetch-transactions', {
-        body: { 
-          cookie, 
-          userId: user.id,
-          cursor: nextCursor 
+      do {
+        setScanProgress(`Scanning page ${pagesScanned + 1}...`);
+        
+        const { data, error } = await supabase.functions.invoke('fetch-transactions', {
+          body: { 
+            cookie, 
+            userId: user.id,
+            cursor: currentCursor 
+          }
+        });
+
+        if (error || !data.success) {
+          toast.error(data?.error || 'Failed to fetch transactions');
+          break;
         }
-      });
 
-      if (error || !data.success) {
-        toast.error(data?.error || 'Failed to fetch transactions');
-        return;
-      }
+        allTransactions = [...allTransactions, ...data.transactions];
+        currentCursor = data.nextCursor;
+        pagesScanned++;
 
-      if (nextCursor) {
-        setTransactions(prev => [...prev, ...data.transactions]);
-      } else {
-        setTransactions(data.transactions);
-      }
+        const limitedCount = allTransactions.filter(t => t.isLimited).length;
+        
+        // If we found limiteds or reached max pages or no more data, stop
+        if (limitedCount > 0 || pagesScanned >= maxPages || !data.hasMore) {
+          setCursor(data.nextCursor);
+          setHasMore(data.hasMore);
+          break;
+        }
+      } while (autoScan && currentCursor);
+
+      setTransactions(allTransactions);
+      setScanProgress('');
       
-      setCursor(data.nextCursor);
-      setHasMore(data.hasMore);
+      const limitedCount = allTransactions.filter(t => t.isLimited).length;
+      toast.success(`Scanned ${pagesScanned} page(s): Found ${allTransactions.length} purchases (${limitedCount} limiteds)`);
       
-      const limitedCount = data.transactions.filter((t: Transaction) => t.isLimited).length;
-      toast.success(`Found ${data.transactions.length} purchases (${limitedCount} limiteds)`);
     } catch (err) {
       toast.error('Failed to fetch transactions');
     } finally {
       setIsFetching(false);
+      setScanProgress('');
     }
   };
 
@@ -119,13 +139,6 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
     : transactions;
 
   const limitedCount = transactions.filter(t => t.isLimited === true).length;
-  
-  // Debug logging
-  console.log('Total transactions:', transactions.length);
-  console.log('Limited count:', limitedCount);
-  console.log('Show limiteds only:', showLimitedsOnly);
-  console.log('Filtered count:', filteredTransactions.length);
-  console.log('Sample tx isLimited values:', transactions.slice(0, 5).map(t => ({ name: t.assetName, isLimited: t.isLimited, type: typeof t.isLimited })));
   const importableCount = filteredTransactions.filter(
     tx => !existingAssetIds.includes(tx.assetId) && !importedIds.has(tx.assetId)
   ).length;
@@ -141,10 +154,10 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
             <div>
               <h2 className="text-lg font-semibold text-foreground">Import from Transactions</h2>
               <p className="text-xs text-muted-foreground">
-                {transactions.length > 0 
+                {scanProgress || (transactions.length > 0 
                   ? `${transactions.length} purchases found (${limitedCount} limiteds)`
                   : 'Import purchased items from your Roblox history'
-                }
+                )}
               </p>
             </div>
           </div>
@@ -155,7 +168,7 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
 
         <div className="p-4 border-b border-border flex gap-2 flex-wrap">
           <Button 
-            onClick={() => fetchTransactions()} 
+            onClick={() => fetchTransactions(undefined, true)} 
             disabled={isFetching}
             className="flex-1 min-w-[140px]"
           >
@@ -164,7 +177,7 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
             ) : (
               <History className="mr-2 h-4 w-4" />
             )}
-            {transactions.length > 0 ? 'Refresh' : 'Scan Transactions'}
+            {transactions.length > 0 ? 'Rescan' : 'Scan for Limiteds'}
           </Button>
           
           {transactions.length > 0 && (
@@ -194,33 +207,43 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
           {transactions.length === 0 ? (
             <div className="text-center py-12">
               <History className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-              <p className="text-muted-foreground">Click "Scan Transactions" to find your purchases</p>
+              <p className="text-muted-foreground">Click "Scan for Limiteds" to find your purchases</p>
               <p className="text-xs text-muted-foreground mt-2">
-                This will scan your Roblox transaction history and identify limited items
+                This will scan multiple pages of your transaction history to find limited items
               </p>
             </div>
           ) : filteredTransactions.length === 0 ? (
             <div className="text-center py-12">
               <Filter className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-              <p className="text-muted-foreground">No limited items found</p>
-              <Button 
-                variant="link" 
-                onClick={() => setShowLimitedsOnly(false)}
-                className="mt-2"
-              >
-                Show all purchases
-              </Button>
+              <p className="text-muted-foreground">No limited items found yet</p>
+              <div className="flex gap-2 justify-center mt-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowLimitedsOnly(false)}
+                >
+                  Show all purchases
+                </Button>
+                {hasMore && (
+                  <Button 
+                    onClick={() => fetchTransactions(cursor || undefined, true)}
+                    disabled={isFetching}
+                  >
+                    {isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Scan more pages
+                  </Button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredTransactions.map((tx) => {
+              {filteredTransactions.map((tx, index) => {
                 const isAlreadyAdded = existingAssetIds.includes(tx.assetId) || importedIds.has(tx.assetId);
                 const profit = calculateProfit(tx.robuxSpent, tx.currentRap);
                 const isProfit = profit !== null && profit > 0;
 
                 return (
                   <div 
-                    key={tx.id} 
+                    key={tx.idHash || `${tx.assetId}-${index}`} 
                     className={cn(
                       "flex items-center gap-3 p-3 rounded-lg border bg-secondary/30",
                       tx.isLimited ? "border-primary/50" : "border-border",
@@ -294,7 +317,7 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
                 <Button
                   variant="outline"
                   className="w-full mt-4"
-                  onClick={() => fetchTransactions(cursor || undefined)}
+                  onClick={() => fetchTransactions(cursor || undefined, true)}
                   disabled={isFetching}
                 >
                   {isFetching ? (
