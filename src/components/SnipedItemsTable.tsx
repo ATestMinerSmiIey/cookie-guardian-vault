@@ -2,6 +2,7 @@ import { ExternalLink, RefreshCw, Plus, Trash2, FileJson, History } from 'lucide
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { RobloxItem } from '@/hooks/useRobloxData';
+import { robuxToGBP, formatGBP } from '@/lib/currency';
 
 interface SnipedItemsTableProps {
   items: RobloxItem[];
@@ -141,8 +142,14 @@ export function SnipedItemsTable({
                             {isProfit ? '+' : ''}R$ {profit.amount.toLocaleString()}
                           </p>
                           <p className={cn(
-                            "text-xs",
+                            "font-mono text-xs",
                             isProfit ? "text-success/80" : "text-loss/80"
+                          )}>
+                            {isProfit ? '+' : ''}{formatGBP(robuxToGBP(profit.amount))}
+                          </p>
+                          <p className={cn(
+                            "text-xs",
+                            isProfit ? "text-success/60" : "text-loss/60"
                           )}>
                             {profit.percentage > 0 ? '+' : ''}{profit.percentage.toFixed(1)}%
                           </p>

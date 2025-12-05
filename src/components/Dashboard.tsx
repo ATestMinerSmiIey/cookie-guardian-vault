@@ -11,6 +11,7 @@ import { Watchlist } from '@/components/Watchlist';
 import { Settings } from '@/components/Settings';
 import { useRobloxData } from '@/hooks/useRobloxData';
 import { cn } from '@/lib/utils';
+import { robuxToGBP, formatGBP } from '@/lib/currency';
 
 type Tab = 'dashboard' | 'watchlist' | 'settings';
 
@@ -69,18 +70,20 @@ export function Dashboard() {
             icon={<DollarSign className="h-4 w-4" />}
             label="Total Invested"
             value={`R$ ${stats.totalInvested.toLocaleString()}`}
+            subValue={formatGBP(robuxToGBP(stats.totalInvested))}
             variant="default"
           />
           <StatsCard
             icon={<Wallet className="h-4 w-4" />}
             label="Portfolio Value"
             value={`R$ ${stats.portfolioValue.toLocaleString()}`}
+            subValue={formatGBP(robuxToGBP(stats.portfolioValue))}
           />
           <StatsCard
             icon={<TrendingUp className="h-4 w-4" />}
             label="All-Time Profit"
             value={`${stats.allTimeProfit >= 0 ? '+' : ''}R$ ${stats.allTimeProfit.toLocaleString()}`}
-            subValue={`${stats.profitPercentage >= 0 ? '+' : ''}${stats.profitPercentage.toFixed(1)}%`}
+            subValue={`${stats.allTimeProfit >= 0 ? '+' : ''}${formatGBP(robuxToGBP(stats.allTimeProfit))} (${stats.profitPercentage >= 0 ? '+' : ''}${stats.profitPercentage.toFixed(1)}%)`}
             variant={stats.allTimeProfit >= 0 ? "success" : "loss"}
           />
         </div>

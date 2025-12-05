@@ -5,31 +5,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Cache Rolimons data for 5 minutes
-let rolimonsCache: { data: any; timestamp: number } | null = null;
-const CACHE_DURATION = 5 * 60 * 1000;
-
-async function getRolimonsData() {
-  if (rolimonsCache && Date.now() - rolimonsCache.timestamp < CACHE_DURATION) {
-    return rolimonsCache.data;
-  }
-
-  try {
-    const response = await fetch('https://www.rolimons.com/api/items', {
-      headers: { 'Accept': 'application/json' }
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      rolimonsCache = { data, timestamp: Date.now() };
-      return data;
-    }
-  } catch (e) {
-    console.error('Failed to fetch Rolimons data:', e);
-  }
-  return null;
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -47,28 +22,27 @@ serve(async (req) => {
 
     console.log('Fetching item data for asset:', assetId);
 
-    // First check Rolimons for accurate RAP and limited status
-    const rolimonsData = await getRolimonsData();
-    let rolimonsItem = null;
-    let isLimited = false;
+    // Fetch resale data for RAP (this only works for limiteds)
     let rap = 0;
-
-    if (rolimonsData?.items?.[assetId]) {
-      const item = rolimonsData.items[assetId];
-      isLimited = true;
-      // Rolimons item format: [name, acronym, rap, value, demand, trend, projected, hyped, rare]
-      rap = item[2] || 0;
-      rolimonsItem = {
-        name: item[0],
-        rap: item[2] || 0,
-        value: item[3] || 0,
-        demand: item[4],
-        trend: item[5],
-      };
-      console.log('Rolimons data found:', rolimonsItem.name, 'RAP:', rap);
+    let isLimited = false;
+    
+    try {
+      const resaleResponse = await fetch(
+        `https://economy.roblox.com/v1/assets/${assetId}/resale-data`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      
+      if (resaleResponse.ok) {
+        const resaleData = await resaleResponse.json();
+        rap = resaleData.recentAveragePrice || 0;
+        isLimited = true; // If resale-data endpoint works, it's a limited
+        console.log('Resale data - RAP:', rap);
+      }
+    } catch (e) {
+      console.log('No resale data (not a limited):', e);
     }
 
-    // Fetch item details from Roblox API for additional info
+    // Fetch item details from Roblox API
     const detailsResponse = await fetch(
       `https://economy.roblox.com/v2/assets/${assetId}/details`,
       { headers: { 'Accept': 'application/json' } }
@@ -81,7 +55,7 @@ serve(async (req) => {
       itemData = await detailsResponse.json();
       console.log('Item data:', itemData.Name);
       
-      // Use Roblox's limited status as fallback if not in Rolimons
+      // Fallback to Roblox's limited status if resale-data didn't confirm
       if (!isLimited) {
         isLimited = itemData.IsLimited || itemData.IsLimitedUnique || false;
         rap = itemData.RecentAveragePrice || 0;
@@ -122,7 +96,7 @@ serve(async (req) => {
       }
     }
 
-    if (!itemData && !rolimonsItem) {
+    if (!itemData) {
       return new Response(
         JSON.stringify({ success: false, error: 'Item not found' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
@@ -143,22 +117,17 @@ serve(async (req) => {
       console.error('Failed to fetch thumbnail:', e);
     }
 
-    const name = rolimonsItem?.name || itemData?.Name || 'Unknown';
-
     return new Response(
       JSON.stringify({
         success: true,
-        assetId: assetId,
-        name,
-        rap: rolimonsItem?.rap ?? rap,
-        value: rolimonsItem?.value || rap,
-        price: itemData?.PriceInRobux || 0,
+        assetId: itemData.AssetId,
+        name: itemData.Name,
+        rap,
+        price: itemData.PriceInRobux || 0,
         isLimited,
-        description: itemData?.Description,
-        creator: itemData?.Creator?.Name,
+        description: itemData.Description,
+        creator: itemData.Creator?.Name,
         thumbnailUrl,
-        demand: rolimonsItem?.demand,
-        trend: rolimonsItem?.trend,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

@@ -15,34 +15,26 @@ interface Transaction {
   isLimited: boolean;
   thumbnailUrl?: string;
   currentRap?: number;
-  value?: number;
 }
 
-// Cache Rolimons data for 5 minutes
-let rolimonsCache: { data: any; timestamp: number } | null = null;
-const CACHE_DURATION = 5 * 60 * 1000;
-
-async function getRolimonsData() {
-  if (rolimonsCache && Date.now() - rolimonsCache.timestamp < CACHE_DURATION) {
-    return rolimonsCache.data;
-  }
-
+async function getResaleData(assetId: number): Promise<{ rap: number; isLimited: boolean }> {
   try {
-    console.log('Fetching Rolimons data...');
-    const response = await fetch('https://www.rolimons.com/api/items', {
-      headers: { 'Accept': 'application/json' }
-    });
-
+    const response = await fetch(
+      `https://economy.roblox.com/v1/assets/${assetId}/resale-data`,
+      { headers: { 'Accept': 'application/json' } }
+    );
+    
     if (response.ok) {
       const data = await response.json();
-      rolimonsCache = { data, timestamp: Date.now() };
-      console.log('Rolimons data cached, total items:', Object.keys(data.items || {}).length);
-      return data;
+      return {
+        rap: data.recentAveragePrice || 0,
+        isLimited: true // If resale-data exists, it's a limited
+      };
     }
-  } catch (e) {
-    console.error('Failed to fetch Rolimons data:', e);
+    return { rap: 0, isLimited: false };
+  } catch {
+    return { rap: 0, isLimited: false };
   }
-  return null;
 }
 
 serve(async (req) => {
@@ -62,11 +54,6 @@ serve(async (req) => {
 
     const cleanCookie = cookie.trim();
     console.log('Fetching transactions for user:', userId);
-
-    // First fetch Rolimons data for accurate limited detection
-    const rolimonsData = await getRolimonsData();
-    const limitedIds = rolimonsData?.items ? new Set(Object.keys(rolimonsData.items).map(Number)) : new Set();
-    console.log('Known limited items from Rolimons:', limitedIds.size);
 
     // Fetch transactions from Roblox API
     let url = `https://economy.roblox.com/v2/users/${userId}/transactions?transactionType=Purchase&limit=100`;
@@ -93,34 +80,43 @@ serve(async (req) => {
     const transactionsData = await response.json();
     console.log('Found transactions:', transactionsData.data?.length || 0);
 
-    const transactions: Transaction[] = [];
-
-    // Process each transaction
+    // Collect all asset purchases first
+    const assetPurchases: { tx: any; assetId: number }[] = [];
+    
     for (const tx of transactionsData.data || []) {
-      // Only process asset purchases (not game passes, etc)
       if (tx.details?.type === 'Asset' && tx.details?.id) {
-        const assetId = tx.details.id;
-        
-        // Check if this is a limited using Rolimons data
-        const isLimited = limitedIds.has(assetId);
-        
-        if (isLimited) {
-          const rolimonsItem = rolimonsData?.items?.[assetId];
-          // Rolimons item format: [name, acronym, rap, value, demand, trend, projected, hyped, rare]
-          const rap = rolimonsItem?.[2] || 0;
-          const value = rolimonsItem?.[3] || rap;
-          const name = rolimonsItem?.[0] || tx.details.name || 'Unknown';
+        assetPurchases.push({ tx, assetId: tx.details.id });
+      }
+    }
 
+    console.log('Asset purchases to check:', assetPurchases.length);
+
+    // Check each asset for limited status using resale-data API
+    const transactions: Transaction[] = [];
+    
+    // Process in batches of 10 to avoid overwhelming the API
+    const batchSize = 10;
+    for (let i = 0; i < assetPurchases.length; i += batchSize) {
+      const batch = assetPurchases.slice(i, i + batchSize);
+      
+      const results = await Promise.all(
+        batch.map(async ({ tx, assetId }) => {
+          const resaleData = await getResaleData(assetId);
+          return { tx, assetId, ...resaleData };
+        })
+      );
+
+      for (const result of results) {
+        if (result.isLimited) {
           transactions.push({
-            id: tx.id,
-            assetId,
-            assetName: name,
-            assetType: tx.details.type,
-            robuxSpent: Math.abs(tx.currency?.amount || 0),
-            created: tx.created,
+            id: result.tx.id,
+            assetId: result.assetId,
+            assetName: result.tx.details.name || 'Unknown',
+            assetType: result.tx.details.type,
+            robuxSpent: Math.abs(result.tx.currency?.amount || 0),
+            created: result.tx.created,
             isLimited: true,
-            currentRap: rap,
-            value,
+            currentRap: result.rap,
           });
         }
       }
