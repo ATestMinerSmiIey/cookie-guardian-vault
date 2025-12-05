@@ -1,10 +1,13 @@
-import { useState } from 'react';
-import { Target, DollarSign, Wallet, TrendingUp, LayoutDashboard, Eye, Settings } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Target, DollarSign, Wallet, TrendingUp, LayoutDashboard, Eye, Settings as SettingsIcon, FileJson } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatsCard } from '@/components/StatsCard';
 import { ProfitChart } from '@/components/ProfitChart';
 import { SnipedItemsTable } from '@/components/SnipedItemsTable';
 import { AddItemModal } from '@/components/AddItemModal';
+import { BulkImportModal } from '@/components/BulkImportModal';
+import { Watchlist } from '@/components/Watchlist';
+import { Settings } from '@/components/Settings';
 import { useRobloxData } from '@/hooks/useRobloxData';
 import { cn } from '@/lib/utils';
 
@@ -13,9 +16,24 @@ type Tab = 'dashboard' | 'watchlist' | 'settings';
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
   const { items, stats, addItem, removeItem, refreshItems } = useRobloxData();
+
+  // Auto-refresh prices based on settings
+  useEffect(() => {
+    const settingsStr = localStorage.getItem('sniper_settings');
+    const settings = settingsStr ? JSON.parse(settingsStr) : { autoRefreshInterval: 30 };
+    
+    const interval = setInterval(() => {
+      if (activeTab === 'dashboard' && items.length > 0) {
+        refreshItems();
+      }
+    }, settings.autoRefreshInterval * 1000);
+
+    return () => clearInterval(interval);
+  }, [activeTab, items.length, refreshItems]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -23,10 +41,16 @@ export function Dashboard() {
     setIsRefreshing(false);
   };
 
+  const handleBulkImport = async (importItems: { assetId: number; boughtFor: number }[]) => {
+    for (const item of importItems) {
+      await addItem(item.assetId, item.boughtFor);
+    }
+  };
+
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
     { id: 'watchlist', label: 'Watchlist', icon: <Eye className="h-4 w-4" /> },
-    { id: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" /> },
+    { id: 'settings', label: 'Settings', icon: <SettingsIcon className="h-4 w-4" /> },
   ];
 
   return (
@@ -85,37 +109,27 @@ export function Dashboard() {
               items={items} 
               onRefresh={handleRefresh}
               onAddClick={() => setIsAddModalOpen(true)}
+              onBulkImportClick={() => setIsBulkImportOpen(true)}
               onRemove={removeItem}
               isRefreshing={isRefreshing}
             />
           </div>
         )}
 
-        {activeTab === 'watchlist' && (
-          <div className="rounded-xl border border-border bg-card p-8 text-center">
-            <Eye className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-            <h3 className="text-lg font-semibold text-foreground">Watchlist Coming Soon</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Track your favorite items and get notified when prices drop
-            </p>
-          </div>
-        )}
-
-        {activeTab === 'settings' && (
-          <div className="rounded-xl border border-border bg-card p-8 text-center">
-            <Settings className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-            <h3 className="text-lg font-semibold text-foreground">Settings Coming Soon</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Configure your sniper settings and preferences
-            </p>
-          </div>
-        )}
+        {activeTab === 'watchlist' && <Watchlist />}
+        {activeTab === 'settings' && <Settings />}
       </div>
 
       <AddItemModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAdd={addItem}
+      />
+
+      <BulkImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        onImport={handleBulkImport}
       />
     </main>
   );
