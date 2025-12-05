@@ -30,7 +30,13 @@ serve(async (req) => {
       }
     );
 
-    if (!detailsResponse.ok) {
+    let itemData: any = null;
+    let thumbnailUrl = '';
+
+    if (detailsResponse.ok) {
+      itemData = await detailsResponse.json();
+      console.log('Item data:', itemData.Name);
+    } else {
       // Try alternative endpoint
       const catalogResponse = await fetch(
         `https://catalog.roblox.com/v1/catalog/items/details`,
@@ -64,6 +70,20 @@ serve(async (req) => {
         );
       }
 
+      // Fetch thumbnail
+      try {
+        const thumbResponse = await fetch(
+          `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=420x420&format=Png&isCircular=false`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (thumbResponse.ok) {
+          const thumbData = await thumbResponse.json();
+          thumbnailUrl = thumbData.data?.[0]?.imageUrl || '';
+        }
+      } catch (e) {
+        console.error('Failed to fetch thumbnail:', e);
+      }
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -72,13 +92,25 @@ serve(async (req) => {
           rap: item.recentAveragePrice || 0,
           price: item.price || 0,
           isLimited: item.itemRestrictions?.includes('Limited') || item.itemRestrictions?.includes('LimitedUnique'),
+          thumbnailUrl,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const itemData = await detailsResponse.json();
-    console.log('Item data:', itemData.Name);
+    // Fetch thumbnail
+    try {
+      const thumbResponse = await fetch(
+        `https://thumbnails.roblox.com/v1/assets?assetIds=${assetId}&size=420x420&format=Png&isCircular=false`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      if (thumbResponse.ok) {
+        const thumbData = await thumbResponse.json();
+        thumbnailUrl = thumbData.data?.[0]?.imageUrl || '';
+      }
+    } catch (e) {
+      console.error('Failed to fetch thumbnail:', e);
+    }
 
     return new Response(
       JSON.stringify({
@@ -90,6 +122,7 @@ serve(async (req) => {
         isLimited: itemData.IsLimited || itemData.IsLimitedUnique,
         description: itemData.Description,
         creator: itemData.Creator?.Name,
+        thumbnailUrl,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

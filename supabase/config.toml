@@ -6,5 +6,5 @@ verify_jwt = false
 [functions.fetch-roblox-item]
 verify_jwt = false
 
-[functions.validate-roblox-cookie]
+[functions.fetch-transactions]
 verify_jwt = false

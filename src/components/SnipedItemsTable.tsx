@@ -1,4 +1,4 @@
-import { ExternalLink, RefreshCw, Plus, Trash2, FileJson } from 'lucide-react';
+import { ExternalLink, RefreshCw, Plus, Trash2, FileJson, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { RobloxItem } from '@/hooks/useRobloxData';
@@ -8,11 +8,20 @@ interface SnipedItemsTableProps {
   onRefresh: () => void;
   onAddClick: () => void;
   onBulkImportClick: () => void;
+  onTransactionImportClick: () => void;
   onRemove: (itemId: string) => void;
   isRefreshing?: boolean;
 }
 
-export function SnipedItemsTable({ items, onRefresh, onAddClick, onBulkImportClick, onRemove, isRefreshing }: SnipedItemsTableProps) {
+export function SnipedItemsTable({ 
+  items, 
+  onRefresh, 
+  onAddClick, 
+  onBulkImportClick, 
+  onTransactionImportClick,
+  onRemove, 
+  isRefreshing 
+}: SnipedItemsTableProps) {
   const calculateProfit = (boughtFor: number, currentRap: number | null) => {
     if (currentRap === null) return { amount: -boughtFor, percentage: -100 };
     const profit = currentRap - boughtFor;
@@ -27,14 +36,18 @@ export function SnipedItemsTable({ items, onRefresh, onAddClick, onBulkImportCli
           <h3 className="font-semibold text-foreground">Sniped Items</h3>
           <p className="text-xs text-muted-foreground">Your trading history</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={onTransactionImportClick}>
+            <History className="mr-2 h-4 w-4" />
+            Import History
+          </Button>
           <Button variant="outline" size="sm" onClick={onBulkImportClick}>
             <FileJson className="mr-2 h-4 w-4" />
-            Import JSON
+            JSON
           </Button>
           <Button variant="outline" size="sm" onClick={onAddClick}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Item
+            Add
           </Button>
           <Button variant="ghost" size="sm" onClick={onRefresh} disabled={isRefreshing}>
             <RefreshCw className={cn("mr-2 h-4 w-4", isRefreshing && "animate-spin")} />
@@ -70,14 +83,22 @@ export function SnipedItemsTable({ items, onRefresh, onAddClick, onBulkImportCli
                   <tr key={item.id} className="border-b border-border/50 last:border-0">
                     <td className="p-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 flex-col items-center justify-center rounded-lg bg-secondary text-[10px] font-bold">
-                          <span className="text-foreground">{item.name.split(' ')[0]?.substring(0, 6)}</span>
-                          <span className="text-muted-foreground">{item.name.split(' ')[1]?.substring(0, 6)}</span>
-                          <div className={cn(
-                            "mt-1 h-1.5 w-1.5 rounded-full",
-                            isLoading ? "bg-loss animate-pulse" : isProfit ? "bg-success" : "bg-loss"
-                          )} />
-                        </div>
+                        {item.thumbnailUrl ? (
+                          <img 
+                            src={item.thumbnailUrl} 
+                            alt={item.name}
+                            className="h-12 w-12 rounded-lg object-cover border border-border"
+                          />
+                        ) : (
+                          <div className="flex h-12 w-12 flex-col items-center justify-center rounded-lg bg-secondary text-[10px] font-bold">
+                            <span className="text-foreground">{item.name.split(' ')[0]?.substring(0, 6)}</span>
+                            <span className="text-muted-foreground">{item.name.split(' ')[1]?.substring(0, 6)}</span>
+                            <div className={cn(
+                              "mt-1 h-1.5 w-1.5 rounded-full",
+                              isLoading ? "bg-loss animate-pulse" : isProfit ? "bg-success" : "bg-loss"
+                            )} />
+                          </div>
+                        )}
                         <div>
                           <a 
                             href={`https://www.roblox.com/catalog/${item.assetId}`}

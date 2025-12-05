@@ -9,6 +9,7 @@ export interface RobloxItem {
   currentRap: number | null;
   date: string;
   isLoading?: boolean;
+  thumbnailUrl?: string;
 }
 
 export interface UserStats {
@@ -30,7 +31,7 @@ export function useRobloxData() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetchItemRAP = async (assetId: number): Promise<number | null> => {
+  const fetchItemRAP = async (assetId: number): Promise<{ rap: number | null; thumbnailUrl?: string }> => {
     try {
       const { data, error } = await supabase.functions.invoke('fetch-roblox-item', {
         body: { assetId }
@@ -38,46 +39,46 @@ export function useRobloxData() {
       
       if (error || !data.success) {
         console.error('Error fetching RAP:', error || data.error);
-        return null;
+        return { rap: null };
       }
       
-      return data.rap;
+      return { rap: data.rap, thumbnailUrl: data.thumbnailUrl };
     } catch (err) {
       console.error('Failed to fetch RAP:', err);
-      return null;
+      return { rap: null };
     }
   };
 
+  const calculateStats = (itemsList: RobloxItem[]) => {
+    const totalInvested = itemsList.reduce((sum, item) => sum + item.boughtFor, 0);
+    const portfolioValue = itemsList.reduce((sum, item) => sum + (item.currentRap || 0), 0);
+    const allTimeProfit = portfolioValue - totalInvested;
+    
+    setStats({
+      totalSnipes: itemsList.length,
+      totalInvested,
+      portfolioValue,
+      allTimeProfit,
+      profitPercentage: totalInvested > 0 ? (allTimeProfit / totalInvested) * 100 : 0,
+    });
+  };
+
   const loadItems = useCallback(async () => {
-    // Load items from localStorage
     const storedItems = localStorage.getItem('sniped_items');
     if (storedItems) {
       const parsed: RobloxItem[] = JSON.parse(storedItems);
       setItems(parsed.map(item => ({ ...item, isLoading: true })));
       
-      // Fetch current RAP for each item
       const updatedItems = await Promise.all(
         parsed.map(async (item) => {
-          const rap = await fetchItemRAP(item.assetId);
-          return { ...item, currentRap: rap, isLoading: false };
+          const { rap, thumbnailUrl } = await fetchItemRAP(item.assetId);
+          return { ...item, currentRap: rap, thumbnailUrl: thumbnailUrl || item.thumbnailUrl, isLoading: false };
         })
       );
       
       setItems(updatedItems);
       localStorage.setItem('sniped_items', JSON.stringify(updatedItems));
-      
-      // Calculate stats
-      const totalInvested = updatedItems.reduce((sum, item) => sum + item.boughtFor, 0);
-      const portfolioValue = updatedItems.reduce((sum, item) => sum + (item.currentRap || 0), 0);
-      const allTimeProfit = portfolioValue - totalInvested;
-      
-      setStats({
-        totalSnipes: updatedItems.length,
-        totalInvested,
-        portfolioValue,
-        allTimeProfit,
-        profitPercentage: totalInvested > 0 ? (allTimeProfit / totalInvested) * 100 : 0,
-      });
+      calculateStats(updatedItems);
     }
   }, []);
 
@@ -92,6 +93,11 @@ export function useRobloxData() {
         throw new Error(data?.error || 'Failed to fetch item');
       }
 
+      // Check if item is a limited
+      if (!data.isLimited) {
+        return { success: false, error: 'This item is not a Limited. Only Limiteds can be tracked.' };
+      }
+
       const newItem: RobloxItem = {
         id: `${Date.now()}`,
         assetId,
@@ -100,24 +106,13 @@ export function useRobloxData() {
         currentRap: data.rap,
         date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
         isLoading: false,
+        thumbnailUrl: data.thumbnailUrl,
       };
 
       const updatedItems = [...items, newItem];
       setItems(updatedItems);
       localStorage.setItem('sniped_items', JSON.stringify(updatedItems));
-      
-      // Recalculate stats
-      const totalInvested = updatedItems.reduce((sum, item) => sum + item.boughtFor, 0);
-      const portfolioValue = updatedItems.reduce((sum, item) => sum + (item.currentRap || 0), 0);
-      const allTimeProfit = portfolioValue - totalInvested;
-      
-      setStats({
-        totalSnipes: updatedItems.length,
-        totalInvested,
-        portfolioValue,
-        allTimeProfit,
-        profitPercentage: totalInvested > 0 ? (allTimeProfit / totalInvested) * 100 : 0,
-      });
+      calculateStats(updatedItems);
 
       return { success: true, item: newItem };
     } catch (err) {
@@ -127,22 +122,44 @@ export function useRobloxData() {
     }
   }, [items]);
 
+  const addItemFromTransaction = useCallback(async (transaction: {
+    assetId: number;
+    assetName: string;
+    robuxSpent: number;
+    created: string;
+    thumbnailUrl?: string;
+    currentRap?: number;
+  }) => {
+    // Check if item already exists
+    const exists = items.some(item => item.assetId === transaction.assetId);
+    if (exists) {
+      return { success: false, error: 'Item already exists' };
+    }
+
+    const newItem: RobloxItem = {
+      id: `${Date.now()}-${transaction.assetId}`,
+      assetId: transaction.assetId,
+      name: transaction.assetName,
+      boughtFor: transaction.robuxSpent,
+      currentRap: transaction.currentRap || null,
+      date: new Date(transaction.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      isLoading: false,
+      thumbnailUrl: transaction.thumbnailUrl,
+    };
+
+    const updatedItems = [...items, newItem];
+    setItems(updatedItems);
+    localStorage.setItem('sniped_items', JSON.stringify(updatedItems));
+    calculateStats(updatedItems);
+
+    return { success: true, item: newItem };
+  }, [items]);
+
   const removeItem = useCallback((itemId: string) => {
     const updatedItems = items.filter(item => item.id !== itemId);
     setItems(updatedItems);
     localStorage.setItem('sniped_items', JSON.stringify(updatedItems));
-    
-    const totalInvested = updatedItems.reduce((sum, item) => sum + item.boughtFor, 0);
-    const portfolioValue = updatedItems.reduce((sum, item) => sum + (item.currentRap || 0), 0);
-    const allTimeProfit = portfolioValue - totalInvested;
-    
-    setStats({
-      totalSnipes: updatedItems.length,
-      totalInvested,
-      portfolioValue,
-      allTimeProfit,
-      profitPercentage: totalInvested > 0 ? (allTimeProfit / totalInvested) * 100 : 0,
-    });
+    calculateStats(updatedItems);
   }, [items]);
 
   const refreshItems = useCallback(() => {
@@ -158,6 +175,7 @@ export function useRobloxData() {
     stats,
     isLoading,
     addItem,
+    addItemFromTransaction,
     removeItem,
     refreshItems,
   };

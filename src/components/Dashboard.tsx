@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Target, DollarSign, Wallet, TrendingUp, LayoutDashboard, Eye, Settings as SettingsIcon, FileJson } from 'lucide-react';
+import { Target, DollarSign, Wallet, TrendingUp, LayoutDashboard, Eye, Settings as SettingsIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StatsCard } from '@/components/StatsCard';
 import { ProfitChart } from '@/components/ProfitChart';
 import { SnipedItemsTable } from '@/components/SnipedItemsTable';
 import { AddItemModal } from '@/components/AddItemModal';
 import { BulkImportModal } from '@/components/BulkImportModal';
+import { TransactionImportModal } from '@/components/TransactionImportModal';
 import { Watchlist } from '@/components/Watchlist';
 import { Settings } from '@/components/Settings';
 import { useRobloxData } from '@/hooks/useRobloxData';
@@ -17,9 +18,10 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [isTransactionImportOpen, setIsTransactionImportOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  const { items, stats, addItem, removeItem, refreshItems } = useRobloxData();
+  const { items, stats, addItem, addItemFromTransaction, removeItem, refreshItems } = useRobloxData();
 
   // Auto-refresh prices based on settings
   useEffect(() => {
@@ -110,6 +112,7 @@ export function Dashboard() {
               onRefresh={handleRefresh}
               onAddClick={() => setIsAddModalOpen(true)}
               onBulkImportClick={() => setIsBulkImportOpen(true)}
+              onTransactionImportClick={() => setIsTransactionImportOpen(true)}
               onRemove={removeItem}
               isRefreshing={isRefreshing}
             />
@@ -130,6 +133,13 @@ export function Dashboard() {
         isOpen={isBulkImportOpen}
         onClose={() => setIsBulkImportOpen(false)}
         onImport={handleBulkImport}
+      />
+
+      <TransactionImportModal
+        isOpen={isTransactionImportOpen}
+        onClose={() => setIsTransactionImportOpen(false)}
+        onImport={addItemFromTransaction}
+        existingAssetIds={items.map(i => i.assetId)}
       />
     </main>
   );
