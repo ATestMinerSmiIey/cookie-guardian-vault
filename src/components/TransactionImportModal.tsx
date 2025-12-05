@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { robuxToGBP, formatGBP } from '@/lib/currency';
 
 interface Transaction {
   id: number;
@@ -207,9 +208,14 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
                           <span>RAP: R$ {tx.currentRap.toLocaleString()}</span>
                         )}
                         {profit !== null && (
-                          <span className={isProfit ? "text-success" : "text-loss"}>
-                            {isProfit ? '+' : ''}R$ {profit.toLocaleString()}
-                          </span>
+                          <>
+                            <span className={isProfit ? "text-success" : "text-loss"}>
+                              {isProfit ? '+' : ''}R$ {profit.toLocaleString()}
+                            </span>
+                            <span className={isProfit ? "text-success" : "text-loss"}>
+                              ({isProfit ? '+' : ''}{formatGBP(robuxToGBP(profit))})
+                            </span>
+                          </>
                         )}
                       </div>
                     </div>
