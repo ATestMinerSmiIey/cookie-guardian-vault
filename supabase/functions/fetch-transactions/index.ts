@@ -127,48 +127,59 @@ serve(async (req) => {
     const transactionsData = await response.json();
     console.log('Found transactions:', transactionsData.data?.length || 0);
 
-    // Filter for limited items using Rolimons data
+    // Log first few transactions for debugging
+    const sampleTx = transactionsData.data?.slice(0, 3);
+    console.log('Sample transactions:', JSON.stringify(sampleTx));
+
+    // Collect ALL asset purchases - let user decide which to import
     const transactions: Transaction[] = [];
+    const assetIds: number[] = [];
     
     for (const tx of transactionsData.data || []) {
+      // Check if it's an asset purchase
       if (tx.details?.type === 'Asset' && tx.details?.id) {
-        const assetId = String(tx.details.id);
-        const rolimonsItem = rolimonsItems[assetId];
+        const assetId = tx.details.id;
+        const assetIdStr = String(assetId);
+        const rolimonsItem = rolimonsItems[assetIdStr];
         
-        if (rolimonsItem) {
-          // This is a limited item!
-          transactions.push({
-            id: tx.id,
-            assetId: tx.details.id,
-            assetName: rolimonsItem.name || tx.details.name || 'Unknown',
-            assetType: tx.details.type,
-            robuxSpent: Math.abs(tx.currency?.amount || 0),
-            created: tx.created,
-            isLimited: true,
-            currentRap: rolimonsItem.rap,
-          });
-        }
+        const isLimited = !!rolimonsItem;
+        
+        transactions.push({
+          id: tx.id,
+          assetId: assetId,
+          assetName: rolimonsItem?.name || tx.details.name || 'Unknown',
+          assetType: tx.details.type,
+          robuxSpent: Math.abs(tx.currency?.amount || 0),
+          created: tx.created,
+          isLimited: isLimited,
+          currentRap: rolimonsItem?.rap || 0,
+        });
+        
+        assetIds.push(assetId);
       }
     }
 
-    console.log('Limited transactions found:', transactions.length);
+    console.log('Total asset purchases:', transactions.length);
+    console.log('Limited items:', transactions.filter(t => t.isLimited).length);
 
-    // Get thumbnails for limited items
-    if (transactions.length > 0) {
-      const assetIds = transactions.map(tx => tx.assetId);
-      
+    // Get thumbnails for all items
+    if (assetIds.length > 0) {
       try {
-        const thumbnailResponse = await fetch(
-          `https://thumbnails.roblox.com/v1/assets?assetIds=${assetIds.join(',')}&size=420x420&format=Png&isCircular=false`,
-          { headers: { 'Accept': 'application/json' } }
-        );
-        
-        if (thumbnailResponse.ok) {
-          const thumbnailData = await thumbnailResponse.json();
-          for (const thumb of thumbnailData.data || []) {
-            const tx = transactions.find(t => t.assetId === thumb.targetId);
-            if (tx) {
-              tx.thumbnailUrl = thumb.imageUrl;
+        // Batch in groups of 100
+        for (let i = 0; i < assetIds.length; i += 100) {
+          const batch = assetIds.slice(i, i + 100);
+          const thumbnailResponse = await fetch(
+            `https://thumbnails.roblox.com/v1/assets?assetIds=${batch.join(',')}&size=420x420&format=Png&isCircular=false`,
+            { headers: { 'Accept': 'application/json' } }
+          );
+          
+          if (thumbnailResponse.ok) {
+            const thumbnailData = await thumbnailResponse.json();
+            for (const thumb of thumbnailData.data || []) {
+              const tx = transactions.find(t => t.assetId === thumb.targetId);
+              if (tx) {
+                tx.thumbnailUrl = thumb.imageUrl;
+              }
             }
           }
         }

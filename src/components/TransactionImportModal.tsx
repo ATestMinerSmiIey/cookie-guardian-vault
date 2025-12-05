@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, History, Download, Check, Loader2, ExternalLink } from 'lucide-react';
+import { X, History, Download, Check, Loader2, ExternalLink, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +33,7 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [importedIds, setImportedIds] = useState<Set<number>>(new Set());
+  const [showLimitedsOnly, setShowLimitedsOnly] = useState(false);
 
   const fetchTransactions = async (nextCursor?: string) => {
     if (!cookie || !user) {
@@ -64,9 +65,8 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
       setCursor(data.nextCursor);
       setHasMore(data.hasMore);
       
-      if (data.transactions.length === 0 && !nextCursor) {
-        toast.info('No limited purchases found in your transaction history');
-      }
+      const limitedCount = data.transactions.filter((t: Transaction) => t.isLimited).length;
+      toast.success(`Found ${data.transactions.length} purchases (${limitedCount} limiteds)`);
     } catch (err) {
       toast.error('Failed to fetch transactions');
     } finally {
@@ -91,13 +91,15 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
     setIsLoading(true);
     let imported = 0;
     
-    for (const tx of transactions) {
-      if (!existingAssetIds.includes(tx.assetId) && !importedIds.has(tx.assetId)) {
-        const result = await onImport(tx);
-        if (result.success) {
-          setImportedIds(prev => new Set([...prev, tx.assetId]));
-          imported++;
-        }
+    const toImport = filteredTransactions.filter(
+      tx => !existingAssetIds.includes(tx.assetId) && !importedIds.has(tx.assetId)
+    );
+    
+    for (const tx of toImport) {
+      const result = await onImport(tx);
+      if (result.success) {
+        setImportedIds(prev => new Set([...prev, tx.assetId]));
+        imported++;
       }
     }
     
@@ -112,6 +114,15 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
     return currentRap - boughtFor;
   };
 
+  const filteredTransactions = showLimitedsOnly 
+    ? transactions.filter(tx => tx.isLimited)
+    : transactions;
+
+  const limitedCount = transactions.filter(t => t.isLimited).length;
+  const importableCount = filteredTransactions.filter(
+    tx => !existingAssetIds.includes(tx.assetId) && !importedIds.has(tx.assetId)
+  ).length;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
       <div className="w-full max-w-2xl max-h-[80vh] rounded-xl border border-border bg-card shadow-2xl flex flex-col">
@@ -122,7 +133,12 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">Import from Transactions</h2>
-              <p className="text-xs text-muted-foreground">Import purchased limiteds from your Roblox history</p>
+              <p className="text-xs text-muted-foreground">
+                {transactions.length > 0 
+                  ? `${transactions.length} purchases found (${limitedCount} limiteds)`
+                  : 'Import purchased items from your Roblox history'
+                }
+              </p>
             </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -130,11 +146,11 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
           </Button>
         </div>
 
-        <div className="p-4 border-b border-border flex gap-2">
+        <div className="p-4 border-b border-border flex gap-2 flex-wrap">
           <Button 
             onClick={() => fetchTransactions()} 
             disabled={isFetching}
-            className="flex-1"
+            className="flex-1 min-w-[140px]"
           >
             {isFetching ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -145,14 +161,25 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
           </Button>
           
           {transactions.length > 0 && (
-            <Button 
-              onClick={handleImportAll} 
-              disabled={isLoading}
-              variant="outline"
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Import All ({transactions.filter(tx => !existingAssetIds.includes(tx.assetId) && !importedIds.has(tx.assetId)).length})
-            </Button>
+            <>
+              <Button
+                variant={showLimitedsOnly ? "default" : "outline"}
+                onClick={() => setShowLimitedsOnly(!showLimitedsOnly)}
+                className="min-w-[100px]"
+              >
+                <Filter className="mr-2 h-4 w-4" />
+                {showLimitedsOnly ? 'Limiteds Only' : 'Show All'}
+              </Button>
+              
+              <Button 
+                onClick={handleImportAll} 
+                disabled={isLoading || importableCount === 0}
+                variant="outline"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Import All ({importableCount})
+              </Button>
+            </>
           )}
         </div>
 
@@ -160,14 +187,26 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
           {transactions.length === 0 ? (
             <div className="text-center py-12">
               <History className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-              <p className="text-muted-foreground">Click "Scan Transactions" to find your limited purchases</p>
+              <p className="text-muted-foreground">Click "Scan Transactions" to find your purchases</p>
               <p className="text-xs text-muted-foreground mt-2">
-                This will scan your Roblox transaction history for limited items
+                This will scan your Roblox transaction history and identify limited items
               </p>
+            </div>
+          ) : filteredTransactions.length === 0 ? (
+            <div className="text-center py-12">
+              <Filter className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+              <p className="text-muted-foreground">No limited items found</p>
+              <Button 
+                variant="link" 
+                onClick={() => setShowLimitedsOnly(false)}
+                className="mt-2"
+              >
+                Show all purchases
+              </Button>
             </div>
           ) : (
             <div className="space-y-2">
-              {transactions.map((tx) => {
+              {filteredTransactions.map((tx) => {
                 const isAlreadyAdded = existingAssetIds.includes(tx.assetId) || importedIds.has(tx.assetId);
                 const profit = calculateProfit(tx.robuxSpent, tx.currentRap);
                 const isProfit = profit !== null && profit > 0;
@@ -176,7 +215,8 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
                   <div 
                     key={tx.id} 
                     className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border border-border bg-secondary/30",
+                      "flex items-center gap-3 p-3 rounded-lg border bg-secondary/30",
+                      tx.isLimited ? "border-primary/50" : "border-border",
                       isAlreadyAdded && "opacity-50"
                     )}
                   >
@@ -193,18 +233,25 @@ export function TransactionImportModal({ isOpen, onClose, onImport, existingAsse
                     )}
                     
                     <div className="flex-1 min-w-0">
-                      <a
-                        href={`https://www.roblox.com/catalog/${tx.assetId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 font-medium text-foreground hover:text-primary text-sm truncate"
-                      >
-                        Purchased <span className="text-primary ml-1">{tx.assetName}</span>
-                        <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                      </a>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`https://www.roblox.com/catalog/${tx.assetId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 font-medium text-foreground hover:text-primary text-sm truncate"
+                        >
+                          <span className="text-primary">{tx.assetName}</span>
+                          <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                        </a>
+                        {tx.isLimited && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium">
+                            LIMITED
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <span>Paid: R$ {tx.robuxSpent.toLocaleString()}</span>
-                        {tx.currentRap !== undefined && (
+                        {tx.currentRap !== undefined && tx.currentRap > 0 && (
                           <span>RAP: R$ {tx.currentRap.toLocaleString()}</span>
                         )}
                         {profit !== null && (
